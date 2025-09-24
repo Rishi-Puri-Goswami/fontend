@@ -10,7 +10,7 @@ import { jwtDecode } from 'jwt-decode';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import {API_URL} from "@env";
 import axios from 'axios';
-;
+import socket from 'Components/Socket';
 const StudentPage = () => {
   const [navebar, setnavebar] = useState(false);
   const [destination, setdestination] = useState("");
@@ -81,6 +81,35 @@ checktoken();
 
 }, [])
       
+
+
+useEffect(() => {
+  socket.on("outpass_permission", ({ permission, wardenname }) => {
+    console.log("🔔 Permission update:", permission);
+
+    setstudentdata((prev) => ({ ...prev, permission })); 
+
+    if (permission === "accepted") {
+  
+      navigate.navigate("QRcodeScreen", { id: studentdata._id });
+    }
+
+    if (permission === "rejected") {
+      Alert.alert(
+        "Request Rejected",
+        `Your request was rejected by ${wardenname || "warden"}`
+      );
+    }
+  });
+
+
+  return () => {
+    socket.off("outpass_permission");
+  };
+}, [navigate, studentdata._id]);
+
+
+
 
 
 
