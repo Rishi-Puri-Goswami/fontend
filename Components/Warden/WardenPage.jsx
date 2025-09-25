@@ -15,14 +15,17 @@ import { useNavigation } from "@react-navigation/native";
 import axios from "axios";
 import { API_URL } from "@env";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import socket from "Components/Socket";
+import { initSocket } from "Components/Socket";
 
 const WardenPage = ({ navigation }) => {
   const [allrequest, setallrequest] = useState([]);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [loadingIds, setLoadingIds] = useState([]); // ✅ Track requests being processed
   const naviga = useNavigation();
 
-  // ✅ Fetch all pending requests on page load
+//   AsyncStorage.clear()   
+
+  // Fetch all pending requests
   useEffect(() => {
     const fetchPendingRequests = async () => {
       try {
@@ -30,7 +33,6 @@ const WardenPage = ({ navigation }) => {
         if (!token) return console.log("⚠️ Invalid user");
 
         const res = await axios.get(`${API_URL}/warden/requests`, {
-          withCredentials: true,
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -45,36 +47,52 @@ const WardenPage = ({ navigation }) => {
     fetchPendingRequests();
   }, []);
 
-  // ✅ Socket listener for new student requests
+  // Socket listener for new student requests
   useEffect(() => {
-    socket.on("new_request", (data) => {
-      console.log("📩 New student request:", data);
-      Alert.alert("New Request", `${data.name} requested outpass!`);
-      setallrequest((prev) => [data, ...prev]); // add new request on top
-    });
+    let socketInstance = null;
+    let isMounted = true;
 
-    return () => socket.off("new_request");
+    const setupSocket = async () => {
+      socketInstance = await initSocket();
+      if (!socketInstance || !isMounted) return;
+
+      socketInstance.on("new_request", (data) => {
+        console.log("📩 New student request:", data);
+        Alert.alert("New Request", `${data.name} requested outpass!`);
+        setallrequest((prev) => [data, ...prev]);
+      });
+    };
+
+    setupSocket();
+
+    return () => {
+      isMounted = false;
+      if (socketInstance) socketInstance.off("new_request");
+    };
   }, []);
 
   // ✅ Accept / Deny request
   const handleStudentRequest = async ({ action, studentId }) => {
-    if (!action || !studentId) return console.log("⚠️ Invalid request");
+    console.log(action , "action of user");
+    console.log(studentId , "studentId of user");
+    if (!action || !studentId) {
+      return Alert.alert("⚠️ Invalid request", "Please try again");
+    }
 
-    const token = await AsyncStorage.getItem("token");
-    if (!token) return console.log("⚠️ Invalid user");
+    if (loadingIds.includes(studentId)) return; // prevent double click
+    setLoadingIds((prev) => [...prev, studentId]);
 
     try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return console.log("⚠️ Invalid user");
+
       const res = await axios.post(
         `${API_URL}/warden/handle-request/${studentId}`,
-        { action },
-        {
-          withCredentials: true,
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { action }, 
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (res.data) {
-        // ✅ Show feedback
         Alert.alert(
           "Success",
           action === "accept"
@@ -82,11 +100,13 @@ const WardenPage = ({ navigation }) => {
             : "❌ You have declined this request"
         );
 
-        // ✅ Remove from UI instantly
+        // Remove from UI instantly
         setallrequest((prev) => prev.filter((item) => item._id !== studentId));
       }
     } catch (error) {
       console.log("❌ Error on accept/decline", error);
+    } finally {
+      setLoadingIds((prev) => prev.filter((id) => id !== studentId));
     }
   };
 
@@ -148,6 +168,10 @@ const WardenPage = ({ navigation }) => {
 
         {allrequest.map((item) => (
           <View key={item._id} style={styles.card}>
+{
+    console.log(item._id , "student id from the view")
+}
+
             <Text style={styles.cardTitle}>Student's Information</Text>
             <View style={styles.divider} />
 
@@ -174,18 +198,36 @@ const WardenPage = ({ navigation }) => {
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 onPress={() =>
-                  handleStudentRequest({ action: "decline", studentId: item._id })
+                  handleStudentRequest({
+                    action: "decline",
+                    studentId: item._id,
+                  })
                 }
-                style={[styles.actionButton, styles.denyButton]}
+
+
+                disabled={loadingIds.includes(item._id)}
+                style={[
+                  styles.actionButton,
+                  styles.denyButton,
+                  loadingIds.includes(item._id) && { opacity: 0.5 },
+                ]}
               >
                 <Text style={styles.buttonText}>Deny</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={() =>
-                  handleStudentRequest({ action: "accept", studentId: item._id })
+                  handleStudentRequest({
+                    action: "accept",
+                    studentId: item._id,
+                  })
                 }
-                style={[styles.actionButton, styles.acceptButton]}
+                disabled={loadingIds.includes(item._id)}
+                style={[
+                  styles.actionButton,
+                  styles.acceptButton,
+                  loadingIds.includes(item._id) && { opacity: 0.5 },
+                ]}
               >
                 <Text style={styles.buttonText}>Accept</Text>
               </TouchableOpacity>

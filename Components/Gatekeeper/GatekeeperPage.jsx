@@ -18,7 +18,7 @@ const GatekeeperPage = () => {
 
 
 // console.log("api url" , API_URL )
-console.log("api url" , API_URL);
+console.log("api url " , API_URL);
 
   // qrcodescan
 
@@ -28,6 +28,9 @@ console.log("api url" , API_URL);
   const gatekeeperdata = async ()  =>{
 
     try {
+
+      // AsyncStorage.clear()
+      
        const token = await AsyncStorage.getItem("token");
         if (!token) {
           console.log("⚠️ No token student has to login");

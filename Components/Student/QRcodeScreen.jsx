@@ -1,80 +1,118 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Alert } from "react-native";
+import { View, Text, BackHandler } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, CommonActions } from "@react-navigation/native";
 import * as Crypto from "expo-crypto";
 import axios from "axios";
 import { API_URL } from "@env";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import socket from "Components/Socket"; // 👈 your socket.io-client instance
+import { initSocket } from "Components/Socket";
 
 export default function QRcodeScreen() {
   const [qrKey, setQrKey] = useState(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [studentId, setStudentId] = useState(null);
+
   const navigation = useNavigation();
   const route = useRoute();
-  const { id } = route.params; 
+  const idFromRoute = route?.params?.id;
 
-  // 🔹 Generate QR key & send to backend
+  let socketInstance = null;
+
+  // Disable Android hardware back button
+  useEffect(() => {
+    const backAction = () => true;
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", backAction);
+    return () => backHandler.remove();
+  }, []);
+
+  // Ensure we always have a student id
+  useEffect(() => {
+    const ensureId = async () => {
+      if (idFromRoute) {
+        setStudentId(idFromRoute);
+      } else {
+        try {
+          const token = await AsyncStorage.getItem("token");
+          if (!token) return;
+
+          const res = await axios.get(`${API_URL}/user/student`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.data?.student?._id) {
+            setStudentId(res.data.student._id);
+          }
+        } catch (err) {
+          console.log("⚠️ Error fetching student ID:", err.message);
+        }
+      }
+    };
+    ensureId();
+  }, [idFromRoute]);
+
+  // Generate QR key & send to backend
   useEffect(() => {
     const generateAndSendKey = async () => {
       try {
         const token = await AsyncStorage.getItem("token");
-        if (!token) {
-          console.log("⚠️ No token found — student must login");
-          return;
-        }
+        if (!token || !studentId) return;
 
-        // Generate random 16-byte key
         const randomKey = await Crypto.getRandomBytesAsync(16);
         const hexKey = Array.from(randomKey)
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");
 
         setQrKey(hexKey);
-        console.log("🔑 Generated Key:", hexKey);
 
-        // Send key to backend
-        const res = await axios.post(
+        await axios.post(
           `${API_URL}/user/getingkey`,
           { key: hexKey },
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-
-        console.log("✅ Server response:", res.data);
       } catch (error) {
         console.log("❌ Error sending QR data:", error.message);
       }
     };
 
-    generateAndSendKey();
-  }, []);
+    if (studentId) generateAndSendKey();
+  }, [studentId]);
 
-  // 🔹 Listen for real-time gate updates
+  // Setup Socket for gate status updates
   useEffect(() => {
-    if (!id) return;
+    if (!studentId) return;
+    let isMounted = true;
 
-    // Join this student's room (if your backend uses rooms)
-    socket.emit("join_room", id);
+    const setupSocket = async () => {
+      socketInstance = await initSocket();
+      if (!socketInstance || !isMounted) return;
 
-    socket.on("gate_status", (data) => {
-      console.log("📩 Gate update:", data);
-      setStatusMessage(data.message);
+      socketInstance.on("qr_status", (data) => {
+        setStatusMessage(data.message);
 
-      if (data.status === "inside") {
-        // ✅ Student came back inside → navigate home after 2s
-        setTimeout(() => {
-          navigation.navigate("StudentHome"); // change to your home screen name
-        }, 2000);
-      }
-    });
+        if (data.status === "inside") {
+          setTimeout(() => {
+            navigation.dispatch(
+              CommonActions.reset({
+                index: 0,
+                routes: [{ name: "StudentPage" }],
+              })
+            );
+            AsyncStorage.removeItem("gatePermission");
+          }, 2000);
+        }
+      });
+
+      socketInstance.emit("join_room", studentId);
+    };
+
+    setupSocket();
 
     return () => {
-      socket.off("gate_status");
+      isMounted = false;
+      if (socketInstance) socketInstance.off("qr_status");
     };
-  }, [id]);
+  }, [studentId]);
 
   return (
     <View

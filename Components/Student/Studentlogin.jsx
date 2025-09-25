@@ -47,12 +47,12 @@ try {
       }
 
 
-     navigate.dispatch(
-  CommonActions.reset({
-    index: 0,
-    routes: [{ name: 'StudentPage' }],
-  })
-);
+      navigate.dispatch(
+    CommonActions.reset({
+      index: 0,
+      routes: [{ name: 'StudentPage' }],
+    })
+  );
 
 
 

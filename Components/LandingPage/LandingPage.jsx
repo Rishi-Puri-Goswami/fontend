@@ -6,7 +6,13 @@ import Studentlogin from 'Components/Student/Studentlogin';
 import WardenLogin from 'Components/Warden/WardenLogin';
 import GatekeeperLogin from 'Components/Gatekeeper/GatekeeperLogin';
 const LandingPage = () => {
+
+  
     const navigate = useNavigation();
+
+
+
+
   return (
 <View className='h-[106vh] w-full bg-black p-4  '>
 
